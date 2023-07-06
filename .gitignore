@@ -1,0 +1,5 @@
+# Ignore PNG files
+*.png
+
+# Ignore config file
+screenshot-upload.conf
