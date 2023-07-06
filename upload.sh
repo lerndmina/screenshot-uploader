@@ -45,8 +45,8 @@ if ! test -f "$config_file"; then
   echo "source_d=\"/home/$USERNAME/Pictures/Screenshots/\"" >>$config_file
   echo "# Destination directory for archived screenshots must be an absolute path" >>$config_file
   echo "move_loc=\"/home/$USERNAME/Pictures/Screenshot-Archive/\"" >>$config_file
-  echo "# Base URL for uploaded screenshots" >>$config_file
-  echo "base_url=\"https://example.com/cdn/\"" >>$config_file
+  echo "# Base URL for uploaded screenshots (No trailing slash)" >>$config_file
+  echo "base_url=\"https://example.com/cdn\"" >>$config_file
   echo "# Upload script file name this must be at the url above" >>$config_file
   echo "upload_file=\"upload.php\"" >>$config_file
   echo "# Password for uploading screenshots" >>$config_file
@@ -106,7 +106,7 @@ if [ -z "$password" ]; then
   exit 1
 else
   # Check if user has already responded to prompt
-  if ! $dont_test_password; then
+  if (($dont_test_password == true)); then
     echo ""
     echo "Skipping password test, remove dont_test_password from config file to test password again"
   else
