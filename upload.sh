@@ -133,8 +133,6 @@ else
       fi
     fi
     # Store user's response in config file
-    echo ""
-    echo "You have indicated that you dont to test the password, to test it again remove dont_test_password from the config file"
     echo -e "\n" >>$config_file
     echo "dont_test_password=true" >>$config_file
   fi
