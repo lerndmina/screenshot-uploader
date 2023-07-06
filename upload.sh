@@ -2,6 +2,9 @@
 
 echo "Starting script"
 
+# Enable extended globbing patterns
+shopt -s extglob
+
 # Check if all necessary commands are installed
 if ! command -v inotifywait &>/dev/null || ! command -v timeout &>/dev/null || ! command -v kdialog &>/dev/null || ! command -v curl &>/dev/null || ! command -v echo &>/dev/null || ! command -v mv &>/dev/null || ! command -v xsel &>/dev/null &>/dev/null; then
   echo "One or more necessary commands could not be found"
@@ -21,42 +24,47 @@ if ! command -v inotifywait &>/dev/null || ! command -v timeout &>/dev/null || !
     echo "Could not find a package manager to install dependencies"
     exit 1
   fi
-  echo ""
-  echo "Dependencies are now installed, waiting for screenshots to be taken"
 fi
 
+echo ""
+echo "Dependency check passed, checking config file"
+
+config_file="screenshot-upload.conf"
+
 # Check if config file does not exist
-if ! test -f "screenshot-upload.conf"; then
+if ! test -f "$config_file"; then
+  echo ""
   echo "Config file does not exist, creating default config file..."
   # Get username for default config file
   USERNAME=$(whoami | tr '[:upper:]' '[:lower:]')
 
   # Create default config file with comments
-  echo "# Configuration file for screenshot upload script" >screenshot-upload.conf
-  echo "" >>screenshot-upload.conf
-  echo "# Source directory for screenshots must be an absolute path" >>screenshot-upload.conf
-  echo "source_d=\"/home/$USERNAME/Pictures/Screenshots/\"" >>screenshot-upload.conf
-  echo "# Destination directory for archived screenshots must be an absolute path" >>screenshot-upload.conf
-  echo "move_loc=\"/home/$USERNAME/Pictures/Screenshot-Archive/\"" >>screenshot-upload.conf
-  echo "# Base URL for uploaded screenshots" >>screenshot-upload.conf
-  echo "base_url=\"https://example.com/cdn/\"" >>screenshot-upload.conf
-  echo "# Upload script file name this must be at the url above" >>screenshot-upload.conf
-  echo "upload_file=\"upload.php\"" >>screenshot-upload.conf
-  echo "# Password for uploading screenshots" >>screenshot-upload.conf
-  echo "password=\"PASSWORD\"" >>screenshot-upload.conf
+  echo "# Configuration file for screenshot upload script" >$config_file
+  echo "" >>$config_file
+  echo "# Source directory for screenshots must be an absolute path" >>$config_file
+  echo "source_d=\"/home/$USERNAME/Pictures/Screenshots/\"" >>$config_file
+  echo "# Destination directory for archived screenshots must be an absolute path" >>$config_file
+  echo "move_loc=\"/home/$USERNAME/Pictures/Screenshot-Archive/\"" >>$config_file
+  echo "# Base URL for uploaded screenshots" >>$config_file
+  echo "base_url=\"https://example.com/cdn/\"" >>$config_file
+  echo "# Upload script file name this must be at the url above" >>$config_file
+  echo "upload_file=\"upload.php\"" >>$config_file
+  echo "# Password for uploading screenshots" >>$config_file
+  echo "password=\"PASSWORD\"" >>$config_file
 
   echo ""
   echo "Please edit the config file to your liking, and then run the script again"
 
   exit 1
 else
+  echo ""
   echo "Config file exists, checking if all variables are set"
   # Check if all variables exist in config file
-  if ! grep -q "^source_d=" screenshot-upload.conf ||
-    ! grep -q "^move_loc=" screenshot-upload.conf ||
-    ! grep -q "^base_url=" screenshot-upload.conf ||
-    ! grep -q "^upload_file=" screenshot-upload.conf ||
-    ! grep -q "^password=" screenshot-upload.conf; then
+  if ! grep -q "^source_d=" $config_file ||
+    ! grep -q "^move_loc=" $config_file ||
+    ! grep -q "^base_url=" $config_file ||
+    ! grep -q "^upload_file=" $config_file ||
+    ! grep -q "^password=" $config_file; then
     echo ""
     echo "One or more variables are missing from the config file"
     echo "please add them and try again or delete the config file to generate a new one"
@@ -66,7 +74,7 @@ else
 fi
 
 # Load variables from config file
-source screenshot-upload.conf
+source $config_file
 
 # Check if source directory exists
 if [ ! -d "$source_d" ]; then
@@ -96,29 +104,65 @@ fi
 if [ -z "$password" ]; then
   echo "Password does not exist in config file"
   exit 1
+else
+  # Check if user has already responded to prompt
+  if ! $dont_test_password; then
+    echo ""
+    echo "Skipping password test, remove dont_test_password from config file to test password again"
+  else
+    # Prompt user to test password
+    if kdialog --yesno "Do you want to test the password?" --title "Screenshot Uploader"; then
+      # Upload test image to check if password is correct
+      RESPONSE=$(curl -s \
+        -F "password=$password" \
+        -F "image=@$source_d/test.png" \
+        $base_url/$upload_file)
+
+      # Check if response contains error-401
+      if echo "$RESPONSE" | grep -q "error-401"; then
+        kdialog --title "Screenshot Uploader Error" --error "Response contains an error: Invalid Password, please check your config file"
+        exit 1
+      fi
+
+      # Check if response contains error
+      if echo "$RESPONSE" | grep -q "error" && ! echo "$RESPONSE" | grep -q "error-401"; then
+        echo ""
+        echo "Response contains an error: $RESPONSE"
+        kdialog --title "Screenshot Uploader Error" --error "Response contains an error: $RESPONSE"
+        exit 1
+      fi
+    fi
+    # Store user's response in config file
+    echo ""
+    echo "You have indicated that you dont to test the password, to test it again remove dont_test_password from the config file"
+    echo -e "\n" >>$config_file
+    echo "dont_test_password=true" >>$config_file
+  fi
 fi
 
-echo "All tests passed"
+echo ""
+echo "All tests passed, starting listener"
+echo ""
 
-rm -r $source_d*.png >/dev/null 2>&1
+# Upload test image to check if password is correct
+
+rm -r $source_d/!(*test).png >/dev/null 2>&1
 
 inotifywait -m -q -e close_write "$source_d" |
   while read -r path action file; do
     if [[ "$file" =~ .*png$ ]]; then
       if timeout 5s kdialog --yesno "Do you want to upload that screenshot?" --title "Screenshot upload"; then
-        echo curling = \"image=@$source_d$file\"
-        RESPONSE=$(curl \
+        RESPONSE=$(curl -s \
           -F "password=$password" \
           -F "image=@$source_d$file" \
           $base_url/$upload_file)
-        echo Response = $RESPONSE
         URL=("$base_url/$RESPONSE") # Concatinates the code with the url
-        echo $URL
-        mv -v $source_d$file $move_loc
+        echo "Uploaded \"$URL\""
+        mv $source_d$file $move_loc
         echo -n "$URL" | xsel --clipboard
         kdialog --passivepopup "Screenshot uploaded to $URL" 3 --title "Screenshot upload"
       else
-        mv -v $source_d$file $move_loc
+        mv $source_d$file $move_loc
       fi
     fi
   done

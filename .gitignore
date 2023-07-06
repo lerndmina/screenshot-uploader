@@ -1,5 +1,7 @@
 # Ignore PNG files
 *.png
 
+!test.png
+
 # Ignore config file
 screenshot-upload.conf
